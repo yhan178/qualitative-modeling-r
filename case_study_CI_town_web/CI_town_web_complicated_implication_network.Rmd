@@ -1,0 +1,200 @@
+---
+title: "Christmas_Island_complicated_implication_networks"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+date: "21 June 2019"
+---
+
+Boolean analysis for the combined cat and rat management for the full Town Network.
+
+```{r include=FALSE}
+source('findPCU.R')
+library(LogicOpt)
+```
+
+Read in the csv file of observed species-response combinations that we saved in advance for the full run of the parameter-sweep (number of matrices produced: 10^8^).
+
+```{r read_species_response_csv}
+observedResponse_df <- read.csv("town_search_full_10e8.csv", head = TRUE)
+nrow(observedResponse_df)
+```
+
+# 1. Perform Boolean minimisation and get the PCUList
+
+Performing the Boolean minimization on species responses to the combined management. Write a list of desired responses for this management.  
+
+```{r Boolean_minimization_combined_management}
+allResponse <- colnames(observedResponse_df)
+# allResponse # check species response
+
+str4true = 'pos'
+str4flase = 'neg'
+
+desiredResponses_cr = c(
+  'cat_tropicBird', 
+  'cat_goshawk', 
+  'cat_feralChicken', 
+  'cat_hawkOwl', 
+  'cat_rat', 
+  'cat_flyingFox',
+  'rat_tropicBird', 
+  'rat_goshawk', 
+  'rat_feralChicken', 
+  'rat_hawkOwl', 
+  'rat_cat', 
+  'rat_flyingFox')
+
+boolLen_cr <- length(desiredResponses_cr)
+desiredResponsesMask_cr <- match(desiredResponses_cr, allResponse)
+
+unobservedInts_cr <- getUnobservedInts2(observedResponse_df, desiredResponsesMask_cr, boolLen_cr)
+
+unobservedBooldf_cr <- getUnobservedBooldf(unobservedInts_cr, desiredResponses_cr)
+
+opt_cr <- logicopt(unobservedBooldf_cr, boolLen_cr, 1, mode="espresso")
+optEqn_cr <- tt2eqn(opt_cr[[1]], boolLen_cr, 1)
+
+PCUList_cr <- getPCUList(optEqn_cr, str4true, str4flase, desiredResponses_cr)
+```
+
+Since the PCUList is quite large and complicated, we split the PCUList up by length.  
+
+```{r split_PCU_by_length}
+PCUlength_cr <- sapply(PCUList_cr, function(i) length(i))
+PCUList_cr1 <- PCUList_cr[PCUlength_cr <= 5]
+PCUList_cr2 <- PCUList_cr[PCUlength_cr > 5]
+```
+
+Draw an implication network for all rules with length less than 5.  
+
+```{r network_all_rules_less_than_five}
+edgelist_cr1 <- get_edgelist_certainAnte(PCUList_cr1, c())
+draw_implication_network(edgelist_cr1)
+```
+
+Above implication network shows that 'poscat_rat' 'negcat_rat' and 'posrat_cat' are central contingencies. Thus we analyze the implication rules under different scenarios based on the rat response to cat management and cat response to rat management.  
+
+# 2. Implication netwoks under different scenarios
+
+First, we split up the PCUs by the effects (positive/negtaive) of cat management on rat population. The always true conditions (here are "when cat management has a positive effect on rat population" and "when cat management has a negative effect on rat population" for PCULList_cr3 and PCUList_cr4 respectively) will be shown as "True" for a succinct presentation. There are rules only involving species-responses to cat management, which have been predicated by the cat only management scenario (see the document *Christmas_Island_Boolean_approach*). Thus, we can perform a further pruning, and these rules are predicated on "True".  
+
+```{r split_PCUList_poscat_rat_and_negcat_rat}
+PCUList_cr3 = list() 
+PCUList_cr4 = list()
+  
+for (PCU in PCUList_cr1){  
+    if (!('negcat_rat' %in% PCU)){
+        if(!all(str_detect(PCU, "cat"))) {
+          
+            PCU <- str_subset(PCU, 'cat_rat', negate = TRUE)
+            PCUList_cr3[[length(PCUList_cr3)+1]] <- PCU
+        }
+    } 
+}
+
+for (PCU in PCUList_cr1){  
+    if (!('poscat_rat' %in% PCU)){
+        if(!all(str_detect(PCU, "cat_"))) {
+          
+            PCU <- str_subset(PCU, 'cat_rat', negate = TRUE)
+            PCUList_cr4[[length(PCUList_cr4)+1]] <- PCU
+        }
+    } 
+}
+
+```
+
+
+## Scenario 1: when cat management has a positive effect on rat population.  
+
+```{r scenario1_poscat_rat_all_rules}
+edgelist_cr3 <- get_edgelist_certainAnte(PCUList_cr3, c())
+draw_implication_network(edgelist_cr3)
+```
+
+From above implication network, we could further explore the implication rules under two scenarios given the effect of rat managemnet on cat population.
+
+
+### Scenario 1a: when cat management has a positive effect on rat population and rat management has a negative effect on cat population (this is the most likely scenario).  
+
+```{r scenario1a_poscat_rat_and_negrat_cat_PCUList}
+PCUList_cr5 = list() 
+  
+for (PCU in PCUList_cr3){  
+    if (!('posrat_cat' %in% PCU)){
+        PCU <- str_subset(PCU, 'rat_cat', negate = TRUE)
+        PCUList_cr5[[length(PCUList_cr5)+1]] <- PCU
+    }
+}
+```
+
+
+The always true conditions (here are "when cat management has a positive effect on rat population and rat management has a negative effect on cat population") are shown as "True" for a succinct presentation.  
+
+In addtion, there is a better way to present the network given that the effect of rat management upon the hawk-owl was contingent upon the effect of cat management upon the hawk-owl.
+
+```{r scenario1a_poscat_rat_and_negrat_cat}
+edgelist_cr5 <- get_edgelist_certainAnte(PCUList_cr5, c('poscat_hawkOwl', 'negcat_hawkOwl'))
+draw_implication_network(edgelist_cr5)
+```
+
+### Scenario 1b: when cat management has a positive effect on rat population and rat management has a positive effect on cat population (this is a less likely scenario).  
+
+```{r scenario1b_poscat_rat_and_posrat_cat_PCUList}
+PCUList_cr6 = list()
+for (PCU in PCUList_cr3){  
+    if (!('negrat_cat' %in% PCU)){
+        PCU <- str_subset(PCU, 'rat_cat', negate = TRUE)
+        PCUList_cr6[[length(PCUList_cr6)+1]] <- PCU
+    }
+}
+```
+
+```{r scenario1b_poscat_rat_and_posrat_cat}
+edgelist_cr6 <- get_edgelist_certainAnte(PCUList_cr6, c('poscat_hawkOwl', 'negcat_hawkOwl'))
+draw_implication_network(edgelist_cr6)
+```
+
+## Scenario 2: when cat management has a negative effect on rat population.  
+
+```{r scenario2_negcat_rat_all_rules}
+edgelist_cr4 <- get_edgelist_certainAnte(PCUList_cr4, c())
+draw_implication_network(edgelist_cr4)
+```
+
+### Scenario 2a: When cat management has a negative effect on rat population and rat management has a negative effect on cat population.  
+
+```{r scenario2a_negcat_rat_negrat_cat_PCUList}
+PCUList_cr7 = list()
+for (PCU in PCUList_cr4){  
+    if (!('posrat_cat' %in% PCU)){
+        PCU <- str_subset(PCU, 'rat_cat', negate = TRUE)
+        PCUList_cr7[[length(PCUList_cr7)+1]] <- PCU
+    }
+}
+```
+
+```{r scenario2a_negcat_rat_negrat_cat}
+edgelist_cr7a <- get_edgelist_certainAnte(PCUList_cr7, c('poscat_hawkOwl', 'negcat_hawkOwl'))
+draw_implication_network(edgelist_cr7a)
+```
+
+### Scenario 2b: when cat management has a negative effect on rat population and rat management has a positive effect on cat population.  
+
+```{r scenario2b_negcat_rat_posrat_cat_PCUList}
+PCUList_cr8 = list()
+for (PCU in PCUList_cr4){  
+    if (!('negrat_cat' %in% PCU)){
+        PCU <- str_subset(PCU, 'rat_cat', negate = TRUE)
+        PCUList_cr8[[length(PCUList_cr8)+1]] <- PCU
+    }
+}
+```
+
+```{r scenario2b_negcat_rat_posrat_cat}
+edgelist_cr8a <- get_edgelist_certainAnte(PCUList_cr8, c('poscat_hawkOwl', 'negcat_hawkOwl'))
+draw_implication_network(edgelist_cr8a)
+```
